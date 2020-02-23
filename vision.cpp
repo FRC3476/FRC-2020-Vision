@@ -11,12 +11,14 @@
 #include <numeric>
 
 
-#define USE_GSTREAMER 0
+#define USE_GSTREAMER 1
 
 #define HIGH_EXP 0.03
 #define LOW_EXP 0.001
 
 #define DEBUG
+
+#define COLOR_RED Scalar(0, 0, 255)
 
 using namespace cv;
 using namespace std;
@@ -80,12 +82,13 @@ bool findIntersection(Vec4f line, Vec4f line2 , Point2f &returnPoint ) {
 }
 
 
+
 //Setup camera object, image properties, and gstreamer streams
 void setupCam(VideoCapture stream) {
 	#if USE_GSTREAMER
-		if(!stream.open("v4l2src device=/dev/v4l/by-path/platform-tegra-xhci-usb-0:3.3:1.0-video-index0 ! image/jpeg, width=640, height=480 ! jpegparse ! jpegdec ! videoconvert ! appsink")) return 0;
+		if(!stream.open("v4l2src device=/dev/v4l/by-path/platform-tegra-xhci-usb-0:3.4:1.0-video-index0 ! image/jpeg, width=640, height=480 ! jpegparse ! jpegdec ! videoconvert ! appsink")) return; //return 0;
 	#else
-		if(!stream.open("/dev/v4l/by-path/platform-tegra-xhci-usb-0:3.3:1.0-video-index0")) return 0;
+		if(!stream.open("/dev/v4l/by-path/platform-tegra-xhci-usb-0:3.4:1.0-video-index0")) return; //return 0;
 	#endif
 	stream.set(CAP_PROP_FRAME_WIDTH, 640);
     stream.set(CAP_PROP_FRAME_HEIGHT,480);
@@ -123,7 +126,7 @@ void updateExposure() {
 }
 
 //count FPS and display on image
-void updateFPS(std::chrono::microseconds cur, std::chrono::microseconds prevTime, Mat &drawing) {
+void updateFPS(std::chrono::high_resolution_clock::time_point cur, std::chrono::high_resolution_clock::time_point prevTime, Mat &drawing) {
 		c+=1;
 		double deltaT = ((double)std::chrono::duration_cast<std::chrono::microseconds>(cur-prevTime).count()/1e6);
 		fpsA[c%5] = 1.0/deltaT;
@@ -137,16 +140,16 @@ void updateFPS(std::chrono::microseconds cur, std::chrono::microseconds prevTime
 		putText(drawing, fpsStr, Point(590, 10), FONT_HERSHEY_SIMPLEX, 0.5, COLOR_RED, 2, LINE_AA);
 }
 
-void drawLine(Mat m, Vec4f line) {
-	line(m, Point(leftLine[2]-leftLine[0] * 1000, leftLine[3]-leftLine[1] * 1000), 
-		Point(leftLine[2]+leftLine[0] * 1000, leftLine[3]+leftLine[1] * 1000), Scalar(128));
-}
+void drawLine(Mat m, Vec4f l) {
+	line(m, Point(l[2]-l[0] * 1000, l[3]-l[1] * 1000), 
+		Point(l[2]+l[0] * 1000, l[3]+l[1] * 1000), Scalar(128));
+} 
 
 int main(int argc, char** argv ) {
 	
 	setupCam(stream);
 	setupUDP();
-	wasteFramesAndDelay();
+	wasteFramesAndDelay(100);
 	
 	Mat kernel;
 	kernel = cv::getStructuringElement(MORPH_CROSS, Size(3,3));
@@ -158,11 +161,13 @@ int main(int argc, char** argv ) {
 		auto cur = std::chrono::high_resolution_clock::now();
 		auto prevTime = cur;
 		if(!stream.isOpened()) return -1;
-				
+		updateFPS(cur, prevTime, frame);		
 				
 		bool valid = true;
 		Mat frame, colorFilter, fbw, hsvFrame;
+
 		stream >> frame;
+		Mat contDisplay = Mat::zeros(frame.rows, frame.cols, CV_8UC1);
 		//Threshold image and remove stray pixels
 		cv::inRange(hsvFrame, Scalar(35,40,50), Scalar(200, 255, 255), fbw);
 		cv::morphologyEx(fbw, fbw, MORPH_OPEN, kernel); 
@@ -185,8 +190,9 @@ int main(int argc, char** argv ) {
 		}
 		//Request next frame if no viable targets
 		if(maxIndex == -1 || contours.size() < 1 || contours[maxIndex].size() < 1) continue;
-		
-		Point2d centroid = Point2d(hulls[maxIndex].m10/hulls[maxIndex].m00, hulls[maxIndex].m01/hulls[maxIndex].m00);
+		Moments mnt = moments(hulls[maxIndex], true);
+		Point2d centroid = Point2d(mnt.m10/mnt.m00, mnt.m01/mnt.m00);
+		exp_data data = {centroid};
 		vector<vector<Point>> collection; 
 		//Store points in x-->y lookup and y-->x lookup, get object bounding points 
 		int maxY, minY, maxX, minX;
@@ -209,8 +215,8 @@ int main(int argc, char** argv ) {
 		int searchEndX = (int) (maxX-(maxX-minX)/3);
 		
 		#ifdef DEBUG 
-		line(contDisplay, Point(0, SearchStartY), Point(640, SearchStartY), Scalar(190), 4);
-		line(contDisplay, Point(0, SearchEndY), Point(640, SearchEndY), Scalar(190), 4);
+		line(contDisplay, Point(0, searchStartY), Point(640, searchStartY), Scalar(190), 4);
+		line(contDisplay, Point(0, searchEndY), Point(640, searchEndY), Scalar(190), 4);
 		#endif
 		
 		
@@ -286,7 +292,7 @@ int main(int argc, char** argv ) {
 		}
 		
 	
-		updateFPS();
+
 		sendUDP(data);
 		
 	}

@@ -6,7 +6,9 @@ struct exp_data {
 	cv::Point2d centroid; 
 };
 
-int sendUDP(std::vector<exp_data> d);
+//typedef struct exp_data vis_data;
+
+int sendUDP(exp_data d);
 
 void setupUDP();
 

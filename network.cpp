@@ -46,25 +46,25 @@ void setupTransmit(const char* ip) {
 	//recvThread.detach();
 }
 
-int sendUDP(std::vector<exp_data> d) {
+int sendUDP(exp_data d) {
 	mutex.lock();
 	if(!setup) {
 		mutex.unlock();
 		return -1;
 	}
 	mutex.unlock();
-	float *data = (float *)malloc(sizeof(float)*2*d.size());
+	float *data = (float *)malloc(sizeof(float)*2);
 	int c = 0;
-	for(int i = 0; i < d.size(); i++) {
-		data[c] = (float)d[i].centroid.x;
-		data[c+1] = (float)d[i].centroid.y;
-		c+=2;
-	}
+	
+	data[c] = (float)d.centroid.x;
+	data[c+1] = (float)d.centroid.y;
+	
+	
 
 	//printf("%f", data[0]);
 	
 
-	sendto(s, data, sizeof(float)*4*d.size(), 0, (sockaddr*)&server, sizeof(server));
+	sendto(s, data, sizeof(float)*2, 0, (sockaddr*)&server, sizeof(server));
 	free(data);	
 	return 0; 
 }
