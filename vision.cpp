@@ -240,6 +240,7 @@ int main(int argc, char** argv ) {
 
 		Moments mnt = moments(hulls[maxIndex], true);
 		Point2d centroid = Point2d(mnt.m10/mnt.m00, mnt.m01/mnt.m00);
+		//std::cout << centroid.x << "," << centroid.y << std::endl;
 		circle(frame, centroid, 3, COLOR_ORANGE, -1);
 		drawContours(frame, hulls, maxIndex, COLOR_ORANGE, 1);
 		exp_data data = {centroid};

@@ -24,6 +24,6 @@
 #echo "running Vision" >> /tmp/jetpack.log
 #touch /tmp/vision.log
 echo "running vision" >> /tmp/vision.log
-sh /home/ubuntu/Documents/2019/FRC-2019-Vision/run.sh &
+sh /home/ubuntu/Documents/2020/FRC-2020-Vision-master/run.sh &
 echo "vision failed"
 exit 0
