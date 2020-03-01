@@ -9,9 +9,10 @@
 #include <time.h>
 #include <chrono>
 #include <numeric>
+#include "opencv2/highgui.hpp"
+#include <opencv2/imgcodecs.hpp>
 
-
-#define USE_GSTREAMER 1
+#define USE_GSTREAMER 0
 
 #define HIGH_EXP 0.03
 #define LOW_EXP 0.001
@@ -19,6 +20,8 @@
 #define DEBUG
 
 #define COLOR_RED Scalar(0, 0, 255)
+#define COLOR_ORANGE Scalar(0, 128, 255)
+
 
 using namespace cv;
 using namespace std;
@@ -27,10 +30,15 @@ cv::VideoCapture stream;
 cv::VideoWriter writer; 
 
 bool curExpHigh = false;
+bool targetsAvailable = true;
 double fpsA[5] = {0, 0, 0, 0, 0};
+bool circleState = false;
 
 int c = 0;
 int prevSwitchC = 0;
+double fps = 0;
+auto cur = std::chrono::high_resolution_clock::now();
+auto prevTime = std::chrono::high_resolution_clock::now();
 	
 Mat frame;
 
@@ -84,19 +92,32 @@ bool findIntersection(Vec4f line, Vec4f line2 , Point2f &returnPoint ) {
 
 
 //Setup camera object, image properties, and gstreamer streams
-void setupCam(VideoCapture stream) {
+void setupCam() {
 	#if USE_GSTREAMER
-		if(!stream.open("v4l2src device=/dev/v4l/by-path/platform-tegra-xhci-usb-0:3.4:1.0-video-index0 ! image/jpeg, width=640, height=480 ! jpegparse ! jpegdec ! videoconvert ! appsink")) return; //return 0;
+		std::cout << "using gstreamer" << std::endl;
+		if(!stream.open("v4l2src device=/dev/v4l/by-path/platform-tegra-xhci-usb-0:3.3:1.0-video-index0 ! image/jpeg, width=640, height=480 ! jpegparse ! jpegdec ! videoconvert ! appsink")) return; //return 0;
 	#else
-		if(!stream.open("/dev/v4l/by-path/platform-tegra-xhci-usb-0:3.4:1.0-video-index0")) return; //return 0;
+		std::cout << "not using gstreamer" << std::endl;
+		stream.open("/dev/v4l/by-path/platform-tegra-xhci-usb-0:3.3:1.0-video-index0");
+		/*if(!stream.open("/dev/v4l/by-path/platform-tegra-xhci-usb-0:3.3:1.0-video-index0")) {
+			std::cout << "FAILED TO OPEN CAM" << std::endl;
+			return;
+		} */ //return 0;
 	#endif
-	stream.set(CAP_PROP_FRAME_WIDTH, 640);
-    stream.set(CAP_PROP_FRAME_HEIGHT,480);
-    stream.set(CAP_PROP_FPS, 60);
+	std::cout << "CAMERA mode: " << stream.get(CAP_PROP_MODE) << std::endl;
+	//stream.set(CAP_PROP_FRAME_WIDTH, 640);
+    //stream.set(CAP_PROP_FRAME_HEIGHT,480);
+   // stream.set(CAP_PROP_FPS, 60); 
+	//stream.set(CAP_PROP_MODE, 1);
+	//stream.set(CAP_PROP_FOURCC, VideoWriter::fourcc(
 	stream.set(CAP_PROP_BRIGHTNESS, 80.0/256.0);
 	stream.set(CAP_PROP_CONTRAST, 25.0/256.0);
 	stream.set(CAP_PROP_SATURATION, 60.0/256.0);
 	stream.set(CAP_PROP_EXPOSURE, 12/10000.0);
+	std::cout << "CAMERA mode: " << stream.get(CAP_PROP_MODE) << std::endl;
+	std::cout << "CAMERA res: " << stream.get(CAP_PROP_FRAME_WIDTH) << std::endl;
+	std::cout << "CAMERA fps: " << stream.get(CAP_PROP_FPS) << std::endl;
+	//std::cout << "CAMERA FORMAT: " << stream.get(CAP_PROP_FORMAT) << std::endl;
 	
 	writer.open("appsrc ! autovideoconvert ! video/x-raw, width=640, height=480 ! omxh264enc control-rate=2 bitrate=125000 ! video/x-h264, stream-format=byte-stream ! h264parse ! rtph264pay mtu=1400 ! udpsink host=127.0.0.1 clients=10.34.76.5:5800 port=5800 sync=false async=false ", 0, (double) 5, cv::Size(640, 480), true);
 
@@ -126,18 +147,17 @@ void updateExposure() {
 }
 
 //count FPS and display on image
-void updateFPS(std::chrono::high_resolution_clock::time_point cur, std::chrono::high_resolution_clock::time_point prevTime, Mat &drawing) {
+void updateFPS(/*std::chrono::high_resolution_clock::time_point cur, std::chrono::high_resolution_clock::time_point prevTime, Mat &drawing*/) {
+		cur = std::chrono::high_resolution_clock::now();
 		c+=1;
 		double deltaT = ((double)std::chrono::duration_cast<std::chrono::microseconds>(cur-prevTime).count()/1e6);
+		//std::cout << deltaT << endl;
 		fpsA[c%5] = 1.0/deltaT;
-		double fps = 0;
+		fps = 0;
 		for(int i = 0; i < 5; i++) fps+=fpsA[i];
 		fps /= 5;
+		prevTime = cur;
 		
-		if(c%20>10) circle(drawing, Point(10, 10), 3, COLOR_RED, -1);
-		char fpsStr[5];
-		sprintf(fpsStr, "%.0f", fps);
-		putText(drawing, fpsStr, Point(590, 10), FONT_HERSHEY_SIMPLEX, 0.5, COLOR_RED, 2, LINE_AA);
 }
 
 void drawLine(Mat m, Vec4f l) {
@@ -145,11 +165,24 @@ void drawLine(Mat m, Vec4f l) {
 		Point(l[2]+l[0] * 1000, l[3]+l[1] * 1000), Scalar(128));
 } 
 
+void displayWriteFrame(Mat m) {
+	//pass "name" and write on frame, write blinky guy
+
+	if(c%20>10) circle(m, Point(10, 10), 3, COLOR_RED, -1);
+		char fpsStr[5];
+		sprintf(fpsStr, "%.0f", fps);
+		putText(m, fpsStr, Point(590, 10), FONT_HERSHEY_SIMPLEX, 0.5, COLOR_RED, 2, LINE_AA);	
+			
+	writer.write(m);
+	//imshow("m", m);
+}
+
 int main(int argc, char** argv ) {
-	
-	setupCam(stream);
+	std::cout << "Trying to setup cams" << std::endl;
+	setupCam();
+	std::cout << "Finished cam setup" << std::endl;
 	setupUDP();
-	wasteFramesAndDelay(100);
+	//wasteFramesAndDelay(100);
 	
 	Mat kernel;
 	kernel = cv::getStructuringElement(MORPH_CROSS, Size(3,3));
@@ -158,24 +191,34 @@ int main(int argc, char** argv ) {
 	while(1) { 
 		//keep track of times, request camera frame
 		if( (cv::waitKey(1) & 0xFF) == ' ');
-		auto cur = std::chrono::high_resolution_clock::now();
-		auto prevTime = cur;
-		if(!stream.isOpened()) return -1;
-		updateFPS(cur, prevTime, frame);		
-				
-		bool valid = true;
-		Mat frame, colorFilter, fbw, hsvFrame;
 
+
+		if(!stream.isOpened()) {
+			cout << "stream is closed..." << std::endl;
+			return -1;
+		}
+		//auto cur = std::chrono::high_resolution_clock::now();
+		updateFPS();
+		//auto prevTime = cur;		
+				
+
+		Mat frame, colorFilter, fbw, hsvFrame;
 		stream >> frame;
+		//writer.write(frame);
+		//imshow("frame", frame); 
+		cv::cvtColor(frame, hsvFrame, COLOR_BGR2HSV);
+		//std::cout << "in loop" << std::endl;
 		Mat contDisplay = Mat::zeros(frame.rows, frame.cols, CV_8UC1);
 		//Threshold image and remove stray pixels
 		cv::inRange(hsvFrame, Scalar(35,40,50), Scalar(200, 255, 255), fbw);
-		cv::morphologyEx(fbw, fbw, MORPH_OPEN, kernel); 
+		cv::morphologyEx(fbw, fbw, MORPH_OPEN, kernel);
+		//cout << "here2"; 
 		vector<vector<Point> > contours;
 		vector<Vec4i> hierarchy;
 		//Detect objects, choose the largest
 		findContours(fbw, contours, hierarchy, RETR_EXTERNAL, CHAIN_APPROX_NONE, Point(0,0) );
-		vector<vector<Point> > hulls( contours.size() ); 
+		vector<vector<Point> > hulls( contours.size() );
+		//std::cout << "here1"; 
 		for(int i = 0; i < contours.size(); i++) {
 			convexHull(contours[i], hulls[i]);
 		}
@@ -189,9 +232,16 @@ int main(int argc, char** argv ) {
 			}
 		}
 		//Request next frame if no viable targets
-		if(maxIndex == -1 || contours.size() < 1 || contours[maxIndex].size() < 1) continue;
+		if(maxIndex == -1 || contours.size() < 1 || contours[maxIndex].size() < 1) {
+			displayWriteFrame(frame);
+			continue;
+		}
+
+
 		Moments mnt = moments(hulls[maxIndex], true);
 		Point2d centroid = Point2d(mnt.m10/mnt.m00, mnt.m01/mnt.m00);
+		circle(frame, centroid, 3, COLOR_ORANGE, -1);
+		drawContours(frame, hulls, maxIndex, COLOR_ORANGE, 1);
 		exp_data data = {centroid};
 		vector<vector<Point>> collection; 
 		//Store points in x-->y lookup and y-->x lookup, get object bounding points 
@@ -247,8 +297,11 @@ int main(int argc, char** argv ) {
 		// could not find enough points to make lines 
 		if(leftPoints.size() < 2 || rightPoints.size() < 2 || innerLeftPoints.size() < 2 
 			|| innerRightPoints.size() < 2 || innerBottomPoints.size() < 2 || topPoints.size() < 2
-			|| bottomPoints.size() < 2) continue;
-	
+			|| bottomPoints.size() < 2) {
+			displayWriteFrame(frame);
+			continue;
+		} 		
+
 		// fit lines to points via least squares reg 
 		Vec4f leftLine, rightLine, bottomLine, topLine, innerLeftLine, innerRightLine, innerBottomLine;
 		fitLine(leftPoints, leftLine, CV_DIST_L2, 0, 0.01, 0.01);
@@ -270,13 +323,15 @@ int main(int argc, char** argv ) {
 		a = a&& findIntersection(topLine, innerLeftLine , innerTopLeft);
 		a = a&& findIntersection(topLine, innerRightLine , innerTopRight);
 		
-		drawLine(contDisplay, bottomLine);
-		drawLine(contDisplay, leftLine);
-		drawLine(contDisplay, rightLine);
-		drawLine(contDisplay, topLine);
+		//drawLine(frame, bottomLine);
+		//drawLine(frame, leftLine);
+		//drawLine(frame, rightLine);
+		//drawLine(frame, topLine);
 
-		if(!a) continue;
-		
+		if(!a) {
+			displayWriteFrame(frame);
+			continue;
+		}		
 		// append points hexagon corners to array 
 		std::vector<cv::Point2f> corners; 
 		corners.push_back(bottomLeft);
@@ -291,7 +346,11 @@ int main(int argc, char** argv ) {
 			circle( frame, corners[i], 0, Scalar(255, 0, 0));			
 		}
 		
-	
+		
+		//imshow("frame w/ corners", frame);
+		//imshow("contours", contDisplay);
+		displayWriteFrame(frame);
+
 
 		sendUDP(data);
 		
