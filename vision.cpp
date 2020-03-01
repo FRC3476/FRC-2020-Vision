@@ -39,6 +39,7 @@ int prevSwitchC = 0;
 double fps = 0;
 auto cur = std::chrono::high_resolution_clock::now();
 auto prevTime = std::chrono::high_resolution_clock::now();
+double targetY = -1;
 	
 Mat frame;
 
@@ -167,12 +168,32 @@ void drawLine(Mat m, Vec4f l) {
 
 void displayWriteFrame(Mat m) {
 	//pass "name" and write on frame, write blinky guy
-
+	//cvtColor(m, m, COLOR_BGR2HSV);
 	if(c%20>10) circle(m, Point(10, 10), 3, COLOR_RED, -1);
 		char fpsStr[5];
 		sprintf(fpsStr, "%.0f", fps);
-		putText(m, fpsStr, Point(590, 10), FONT_HERSHEY_SIMPLEX, 0.5, COLOR_RED, 2, LINE_AA);	
-			
+		putText(m, fpsStr, Point(590, 10), FONT_HERSHEY_SIMPLEX, 0.5, COLOR_RED, 2, LINE_AA);
+	int crossHairSize = 10;	
+	int crossHairOpening = 3;
+	int tOff = 240;
+	if(targetY != -1)tOff = targetY;
+	line(m,Point(320, crossHairOpening+tOff), Point(320, tOff+crossHairSize), Scalar(255, 255, 255), 2); 
+	line(m,Point(320, tOff-crossHairOpening), Point(320, tOff-crossHairSize), Scalar(255, 255, 255), 2);
+	line(m,Point(320 + crossHairOpening, tOff), Point(320+crossHairSize, tOff), Scalar(255, 255, 255), 2);
+	line(m, Point(320 - crossHairOpening, tOff), Point(320-crossHairSize, tOff), Scalar(255, 255, 255), 2); 
+	double fov = 29.6;		
+	for(int i = 1; i <= 5; i++) {
+		int dotX = (int) (((double)i/fov) * 640);
+		circle(m, Point(320+dotX, tOff), 1, Scalar(255, 255, 255), -1);
+		circle(m, Point(320-dotX, tOff), 1, Scalar(255, 255, 255), -1);
+		
+	}	
+	for(int i = 5; i <= 15; i+=3) {
+		int dotX = (int) (((double)i/fov) * 640);
+                circle(m, Point(320+dotX, tOff), 1, Scalar(255, 255, 255), -1);
+                circle(m, Point(320-dotX, tOff), 1, Scalar(255, 255, 255), -1);
+	}
+
 	writer.write(m);
 	//imshow("m", m);
 }
@@ -191,7 +212,7 @@ int main(int argc, char** argv ) {
 	while(1) { 
 		//keep track of times, request camera frame
 		if( (cv::waitKey(1) & 0xFF) == ' ');
-
+		targetY = -1;
 
 		if(!stream.isOpened()) {
 			cout << "stream is closed..." << std::endl;
@@ -210,7 +231,7 @@ int main(int argc, char** argv ) {
 		//std::cout << "in loop" << std::endl;
 		Mat contDisplay = Mat::zeros(frame.rows, frame.cols, CV_8UC1);
 		//Threshold image and remove stray pixels
-		cv::inRange(hsvFrame, Scalar(35,40,50), Scalar(200, 255, 255), fbw);
+		cv::inRange(hsvFrame, Scalar(10,60,30), Scalar(140, 255, 255), fbw);
 		cv::morphologyEx(fbw, fbw, MORPH_OPEN, kernel);
 		//cout << "here2"; 
 		vector<vector<Point> > contours;
@@ -240,6 +261,7 @@ int main(int argc, char** argv ) {
 
 		Moments mnt = moments(hulls[maxIndex], true);
 		Point2d centroid = Point2d(mnt.m10/mnt.m00, mnt.m01/mnt.m00);
+		targetY = centroid.y;
 		//std::cout << centroid.x << "," << centroid.y << std::endl;
 		circle(frame, centroid, 3, COLOR_ORANGE, -1);
 		drawContours(frame, hulls, maxIndex, COLOR_ORANGE, 1);
@@ -259,7 +281,7 @@ int main(int argc, char** argv ) {
 			maxX = max(maxX, contours[maxIndex][i].x);
 			minX = min(minX, contours[maxIndex][i].x);
 		}
-		
+		double targetHeight = maxY - minY;
 		int searchStartY = (int) (minY+(maxY-minY)/3);
 		int searchEndY = (int) (maxY-(maxY-minY)/3);
 		int searchStartX = (int) (minX+(maxX-minX)/3);
