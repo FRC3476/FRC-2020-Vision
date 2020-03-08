@@ -23,7 +23,9 @@
 
 #echo "running Vision" >> /tmp/jetpack.log
 #touch /tmp/vision.log
-echo "running vision" >> /tmp/vision.log
+
+#echo "running vision" >> /tmp/vision.log
 sh /home/ubuntu/Documents/2020/FRC-2020-Vision-master/run.sh &
+#gst-launch-1.0 v4l2src device="/dev/video0" ! "video/x-raw, width=640, height=480, format=(string)I420" ! omxh264enc control-rate=2 bitrate=125000 ! 'video/x-h264, stream-format=(string)byte-stream' ! h264parse ! rtph264pay mtu=1400 ! udpsink host=127.0.0.1 clients=10.34.76.5:5809 port=5809 sync=false async=false &
 echo "vision failed"
 exit 0
